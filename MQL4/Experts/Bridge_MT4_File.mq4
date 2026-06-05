@@ -15,10 +15,17 @@
 
 //+------------------------------------------------------------------+
 //|  Input Parameters                                                |
+//|                                                                  |
+//|  Path rules — LOCAL SANDBOX MODE:                                |
+//|  All paths are relative to MT4's local MQL4\Files\ folder.      |
+//|  e.g. "bridge\\outgoing\\" resolves to:                         |
+//|  ...\Terminal\<ID>\MQL4\Files\bridge\outgoing\                  |
+//|  Create these subfolders inside MQL4\Files\ before attaching.   |
+//|  Do NOT use FILE_COMMON — use local file mode only.             |
 //+------------------------------------------------------------------+
-extern string BridgeFolder        = "C:\\bridge\\outgoing\\";
-extern string FeedbackFolder      = "C:\\bridge\\incoming\\";
-extern string ArchiveFolder       = "C:\\bridge\\archive\\";
+extern string BridgeFolder        = "bridge\\outgoing\\";
+extern string FeedbackFolder      = "bridge\\incoming\\";
+extern string ArchiveFolder       = "bridge\\archive\\";
 extern bool   OnlyCurrentSymbol   = false;
 extern bool   AskForConfirmation  = false;
 extern double MaxLotsPerTrade     = 1.0;
@@ -27,6 +34,104 @@ extern int    MagicNumberBase     = 202600;
 extern int    PollIntervalSeconds = 1;
 extern int    Slippage            = 3;        // in points
 extern bool   VerboseLogging      = true;
+extern int    MaxFindFailures     = 10;       // alert after N consecutive FileFindFirst failures
+extern int    MaxActionFileLines  = 50;       // max lines to read from one action file
+extern int    MaxFileRetries      = 5;        // warn after N consecutive open failures per file
+
+//+------------------------------------------------------------------+
+//|  Enhancement 1 globals — FileFindFirst failure tracking         |
+//+------------------------------------------------------------------+
+int  g_findFailCount = 0;    // consecutive FileFindFirst failures
+bool g_alertFired    = false; // true once alert has fired for this failure run
+
+//+------------------------------------------------------------------+
+//|  Enhancement 2 globals — per-file open retry tracking           |
+//+------------------------------------------------------------------+
+#define MAX_RETRY_ENTRIES 20
+string g_retryFilenames[MAX_RETRY_ENTRIES];
+int    g_retryCounts[MAX_RETRY_ENTRIES];
+int    g_retryUsed = 0;      // number of active entries
+
+//+------------------------------------------------------------------+
+//|  RetryTrack                                                      |
+//|  Enhancement 2: record a failed open attempt for a filename.    |
+//|  Logs a warning after MaxFileRetries consecutive failures.      |
+//+------------------------------------------------------------------+
+void RetryTrack(string filename)
+{
+   // Search for existing entry
+   for(int i = 0; i < g_retryUsed; i++)
+   {
+      if(g_retryFilenames[i] == filename)
+      {
+         g_retryCounts[i]++;
+         if(g_retryCounts[i] >= MaxFileRetries)
+            Print("WARNING: file '", filename, "' has failed to open ",
+                  g_retryCounts[i], " times -- possible permanent lock or",
+                  " permissions issue. Inspect manually.");
+         return;
+      }
+   }
+   // New entry — add if space available
+   if(g_retryUsed < MAX_RETRY_ENTRIES)
+   {
+      g_retryFilenames[g_retryUsed] = filename;
+      g_retryCounts[g_retryUsed]    = 1;
+      g_retryUsed++;
+   }
+   else
+   {
+      Print("WARNING: RetryTracker full (", MAX_RETRY_ENTRIES,
+            " entries) -- cannot track '", filename, "'");
+   }
+}
+
+//+------------------------------------------------------------------+
+//|  RetryClear                                                      |
+//|  Enhancement 2: remove a filename from the retry tracker.       |
+//|  Called when a file is successfully processed or disappears.    |
+//+------------------------------------------------------------------+
+void RetryClear(string filename)
+{
+   for(int i = 0; i < g_retryUsed; i++)
+   {
+      if(g_retryFilenames[i] == filename)
+      {
+         // Compact array — swap last entry into this slot
+         g_retryFilenames[i] = g_retryFilenames[g_retryUsed - 1];
+         g_retryCounts[i]    = g_retryCounts[g_retryUsed - 1];
+         g_retryFilenames[g_retryUsed - 1] = "";
+         g_retryCounts[g_retryUsed - 1]    = 0;
+         g_retryUsed--;
+         return;
+      }
+   }
+}
+
+//+------------------------------------------------------------------+
+//|  ProbeFolder                                                     |
+//|  Enhancement 4: Write and delete a probe file to verify a       |
+//|  folder exists and is writable. Called from OnInit only.        |
+//|  Logs a clear actionable error if the folder is not accessible. |
+//+------------------------------------------------------------------+
+bool ProbeFolder(string folder, string label)
+{
+   string probePath = folder + "_bridge_probe.tmp";
+   int handle = FileOpen(probePath, FILE_WRITE | FILE_TXT);
+   if(handle == INVALID_HANDLE)
+   {
+      Print("ERROR: Cannot write to ", label, " '", folder, "'");
+      Print("       Folder may not exist or MT4 has no write access.");
+      Print("       Create the folder and restart the EA.");
+      return false;
+   }
+   FileWriteString(handle, "probe");
+   FileClose(handle);
+   FileDelete(probePath);
+   if(VerboseLogging)
+      Print("ProbeFolder: ", label, " OK — '", folder, "'");
+   return true;
+}
 
 //+------------------------------------------------------------------+
 //|  OnInit                                                          |
@@ -46,6 +151,14 @@ int OnInit()
    Print("  BridgeFolder   : ", BridgeFolder);
    Print("  FeedbackFolder : ", FeedbackFolder);
    Print("  ArchiveFolder  : ", ArchiveFolder);
+
+   // Enhancement 4: Probe all three folders for write access at startup.
+   // Logs a clear actionable error if any folder is missing or not writable.
+   // EA continues running — operator can create the missing folder without
+   // detaching and re-attaching the EA.
+   ProbeFolder(BridgeFolder,   "BridgeFolder");
+   ProbeFolder(FeedbackFolder, "FeedbackFolder");
+   ProbeFolder(ArchiveFolder,  "ArchiveFolder");
 
    // Start poll timer
    EventSetTimer(PollIntervalSeconds);
@@ -127,16 +240,30 @@ bool ReadActionFile(string path,
    comment     = "";
 
    // Open file — FILE_COMMON required for absolute paths outside MT4 sandbox
-   int handle = FileOpen(path, FILE_READ | FILE_TXT | FILE_COMMON);
+   int handle = FileOpen(path, FILE_READ | FILE_TXT);
    if(handle == INVALID_HANDLE)
    {
       Print("ReadActionFile: cannot open file: ", path, " error: ", GetLastError());
+      // Enhancement 2: track consecutive open failures per file
+      RetryTrack(path);
       return false;
    }
+
+   int lineCount = 0;
 
    // Read line by line
    while(!FileIsEnding(handle))
    {
+      // Enhancement 3a: guard against oversized files (wrong file dropped in folder)
+      lineCount++;
+      if(lineCount > MaxActionFileLines)
+      {
+         Print("ReadActionFile: file exceeds MaxActionFileLines (", MaxActionFileLines,
+               ") -- possible wrong file in BridgeFolder, skipping: ", path);
+         FileClose(handle);
+         return false;
+      }
+
       string line = FileReadString(handle);
       line = StringTrim(line);
 
@@ -193,7 +320,7 @@ void WriteFeedback(string id,
    string filepath = FeedbackFolder + id + "_result.txt";
 
    // FILE_COMMON required for absolute paths outside MT4 sandbox
-   int handle = FileOpen(filepath, FILE_WRITE | FILE_TXT | FILE_COMMON);
+   int handle = FileOpen(filepath, FILE_WRITE | FILE_TXT);
    if(handle == INVALID_HANDLE)
    {
       Print("WriteFeedback: cannot open feedback file: ", filepath,
@@ -243,7 +370,7 @@ void ArchiveActionFile(string path)
    string dest = ArchiveFolder + filename;
 
    // FILE_COMMON on both source and destination — both are absolute paths
-   bool moved = FileMove(path, FILE_COMMON, dest, FILE_COMMON | FILE_REWRITE);
+   bool moved = FileMove(path, 0, dest, FILE_REWRITE);
    if(moved)
    {
       if(VerboseLogging)
@@ -253,7 +380,7 @@ void ArchiveActionFile(string path)
    {
       Print("ArchiveActionFile: FileMove failed (error ", GetLastError(),
             "), deleting: ", path);
-      bool deleted = FileDelete(path, FILE_COMMON);
+      bool deleted = FileDelete(path, 0);
       if(!deleted)
          Print("ArchiveActionFile: FileDelete also failed (error ",
                GetLastError(), ") -- file may remain in BridgeFolder: ", path);
@@ -269,6 +396,16 @@ void ArchiveActionFile(string path)
 bool ValidateOpen(string id, string asset, double size, string side,
                   string valid_until)
 {
+   // Enhancement 3b: reject zero or negative lot size
+   // catches "size=abc" silently parsed as 0.0 by StringToDouble
+   if(size <= 0.0)
+   {
+      Print("ValidateOpen: invalid lot size ", size, " (zero or negative)");
+      WriteFeedback(id, asset, "OPEN", "REJECTED", side, size, "", 0.0,
+                    "InvalidLotSize", 1);
+      return false;
+   }
+
    // --- Task 3.3: Lot size check ---
    if(size > MaxLotsPerTrade)
    {
@@ -517,6 +654,8 @@ void ProcessActionFile(string path)
       Print("ProcessActionFile: skipping unreadable file: ", path);
       return;
    }
+   // Enhancement 2: file opened successfully — clear any retry record for this path
+   RetryClear(path);
 
    if(VerboseLogging)
       Print("ProcessActionFile: parsed id=", id, " action=", action,
@@ -575,26 +714,63 @@ void ProcessActionFile(string path)
 //|  Task 6.1 — poll BridgeFolder for action files on every tick.  |
 //|  MT4 OnTimer is not re-entrant — queued ticks wait; no mutex   |
 //|  needed.                                                         |
+//|  Enhancement 1: tracks consecutive FileFindFirst failures and   |
+//|  fires a one-shot Alert() after MaxFindFailures is reached.     |
 //+------------------------------------------------------------------+
 void OnTimer()
 {
    string mask     = BridgeFolder + "*.txt";
    string filename = "";
 
-   // FILE_COMMON required — BridgeFolder is an absolute path outside MT4 sandbox
-   long findHandle = FileFindFirst(mask, filename, FILE_COMMON);
+   long findHandle = FileFindFirst(mask, filename, 0);
    if(findHandle == INVALID_HANDLE)
    {
-      // No files found — normal empty-folder case, not an error
+      // Distinguish empty folder (GetLastError()==0) from real failure
+      int err = GetLastError();
+      if(err != 0)
+      {
+         // Real FileFindFirst failure — track it
+         g_findFailCount++;
+         Print("OnTimer: FileFindFirst failed (error ", err,
+               ") consecutive count=", g_findFailCount);
+
+         if(g_findFailCount >= MaxFindFailures && !g_alertFired)
+         {
+            Alert("Bridge EA: FileFindFirst has failed ", g_findFailCount,
+                  " times consecutively. Check BridgeFolder path ('",
+                  BridgeFolder, "') and MT4 build. EA is NOT polling.");
+            g_alertFired = true;
+         }
+      }
+      else
+      {
+         // Empty folder — valid, reset failure counter
+         if(g_findFailCount > 0)
+         {
+            Print("OnTimer: FileFindFirst recovered after ", g_findFailCount,
+                  " failure(s)");
+            g_findFailCount = 0;
+            g_alertFired    = false;
+         }
+      }
       return;
+   }
+
+   // Successful find — reset failure counter
+   if(g_findFailCount > 0)
+   {
+      Print("OnTimer: FileFindFirst recovered after ", g_findFailCount,
+            " failure(s)");
+      g_findFailCount = 0;
+      g_alertFired    = false;
    }
 
    do
    {
-      string fullpath = BridgeFolder + filename;
+      string relpath = BridgeFolder + filename;
       if(VerboseLogging)
          Print("OnTimer: found file ", filename);
-      ProcessActionFile(fullpath);
+      ProcessActionFile(relpath);
    }
    while(FileFindNext(findHandle, filename));
 
