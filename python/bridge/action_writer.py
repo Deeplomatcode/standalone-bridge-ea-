@@ -161,10 +161,12 @@ def write_open_action(
     magic_str = "" if magic == 0   else str(magic)
 
     # --- Write atomically via write_action_file ---
+    # Use asset.strip() (not asset_norm) to preserve broker-specific casing,
+    # e.g. "EURUSDm" on Exness must not be uppercased to "EURUSDM".
     write_action_file(
         path,
         id=action_id,
-        asset=asset_norm,
+        asset=asset.strip(),
         action="OPEN",
         side=side_norm,
         size=size,
@@ -220,11 +222,12 @@ def write_close_all_action(
     magic_str = "" if magic == 0 else str(magic)
 
     # --- Write atomically ---
+    # Use asset.strip() (not asset_norm) to preserve broker-specific casing.
     # side, size, order_type, sl, tp are blank — EA ignores them for CLOSE_ALL
     write_action_file(
         path,
         id=action_id,
-        asset=asset_norm,
+        asset=asset.strip(),
         action="CLOSE_ALL",
         side="",
         size="",

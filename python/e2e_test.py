@@ -41,7 +41,7 @@ from bridge.action_writer import write_open_action, write_close_all_action
 # ---------------------------------------------------------------------------
 BRIDGE_FOLDER   = os.path.join("bridge", "outgoing")   # relative to MT4 MQL4\Files\
 FEEDBACK_FOLDER = os.path.join("bridge", "incoming")   # relative to MT4 MQL4\Files\
-ASSET           = "EURUSD"
+ASSET           = "EURUSDm"   # Exness demo uses 'm' suffix
 SIZE            = 0.01
 POLL_TIMEOUT    = 10   # seconds to wait for feedback
 POLL_INTERVAL   = 0.5  # seconds between checks

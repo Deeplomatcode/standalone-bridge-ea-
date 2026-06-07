@@ -180,8 +180,14 @@ class TestWriteOpenAction:
         fields = read_fields(path)
         assert fields["side"] == "SELL"
 
-    def test_asset_normalised_to_uppercase(self, tmp_path):
-        path = write_open_action(str(tmp_path), "eurusd", "BUY", 0.01)
+    def test_asset_preserves_broker_casing(self, tmp_path):
+        """asset field must preserve original casing — brokers like Exness use 'EURUSDm'."""
+        path = write_open_action(str(tmp_path), "EURUSDm", "BUY", 0.01)
+        fields = read_fields(path)
+        assert fields["asset"] == "EURUSDm"
+
+    def test_asset_strips_whitespace(self, tmp_path):
+        path = write_open_action(str(tmp_path), "  EURUSD  ", "BUY", 0.01)
         fields = read_fields(path)
         assert fields["asset"] == "EURUSD"
 
@@ -249,7 +255,13 @@ class TestWriteCloseAllAction:
         with pytest.raises(ValueError, match="asset"):
             write_close_all_action(str(tmp_path), "")
 
-    def test_asset_normalised_to_uppercase(self, tmp_path):
-        path = write_close_all_action(str(tmp_path), "xauusd")
+    def test_asset_preserves_broker_casing(self, tmp_path):
+        """asset field must preserve original casing — brokers like Exness use 'EURUSDm'."""
+        path = write_close_all_action(str(tmp_path), "EURUSDm")
         fields = read_fields(path)
-        assert fields["asset"] == "XAUUSD"
+        assert fields["asset"] == "EURUSDm"
+
+    def test_asset_strips_whitespace(self, tmp_path):
+        path = write_close_all_action(str(tmp_path), "  xauusd  ")
+        fields = read_fields(path)
+        assert fields["asset"] == "xauusd"
