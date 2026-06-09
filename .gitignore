@@ -1,0 +1,15 @@
+# OS
+.DS_Store
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.pytest_cache/
+.hypothesis/
+
+# Raw OHLCV data files (fetched locally, not committed)
+python/data/csv/
+
+# MT4 compiled files
+*.ex4
