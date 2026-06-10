@@ -21,6 +21,7 @@ from signals.order_blocks import detect_order_blocks, mark_mitigated
 from signals.strategy import generate_signals, execute_signals, TradeSignal
 from risk.manager import RiskManager, Position
 from core.config import TradingConfig
+from core.position_book import PositionBook
 
 logger = logging.getLogger(__name__)
 
@@ -37,6 +38,7 @@ class Orchestrator:
             max_drawdown_pct=config.max_drawdown_pct,
         )
         self.open_positions: List[Position] = []   # Phase 16 will populate this
+        self.position_book = PositionBook(config.feedback_folder)
         self._dispatched_ids: Set[str] = set()     # dedup guard
 
     # ------------------------------------------------------------------
@@ -56,6 +58,7 @@ class Orchestrator:
             }
         """
         summary: Dict[str, dict] = {}
+        self._update_positions_from_feedback()
         t0 = time.monotonic()
         logger.info("=== Cycle start ===")
 
@@ -166,8 +169,9 @@ class Orchestrator:
         return True
 
     def _update_positions_from_feedback(self) -> None:
-        """Stub for Phase 16: position book update from feedback files. No-op."""
-        pass
+        """Update open_positions from EA feedback files via PositionBook."""
+        new_records = self.position_book.update()
+        self.open_positions = self.position_book.open_positions
 
     def _log_startup(self) -> None:
         """Log configuration summary on startup."""
