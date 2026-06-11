@@ -19,6 +19,7 @@ from data.ohlcv import update_ohlcv
 from signals.regime import classify_regime
 from signals.order_blocks import detect_order_blocks, mark_mitigated
 from signals.strategy import generate_signals, execute_signals, TradeSignal
+from signals.session import filter_by_session
 from risk.manager import RiskManager, Position
 from core.config import TradingConfig
 from core.position_book import PositionBook
@@ -124,7 +125,13 @@ class Orchestrator:
                 rr_ratio=self.config.rr_ratio,
             )
             result["signals_generated"] = len(signals)
-            logger.info(f"[{symbol}] signals_generated={len(signals)}")
+
+            # 4a. Session / killzone filter (Phase 18)
+            if self.config.session_filter_enabled:
+                signals = filter_by_session(signals)
+                logger.info(f"[{symbol}] signals_after_session_filter={len(signals)}")
+            else:
+                logger.info(f"[{symbol}] signals_generated={len(signals)}")
 
             # 5. Risk gate + dispatch
             approved_count = 0

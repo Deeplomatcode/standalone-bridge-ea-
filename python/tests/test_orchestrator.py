@@ -43,6 +43,9 @@ def make_signal(symbol="EURUSDm", comment="OB_BUY_test"):
     sig.stop_loss = 1.09
     sig.take_profit = 1.13
     sig.comment = comment
+    # Phase 18: must be a real pd.Timestamp so the session filter can call .time()
+    # 08:30 UTC falls inside the London Open killzone (07:00–10:00)
+    sig.timestamp = pd.Timestamp("2026-01-05 08:30:00")
     return sig
 
 

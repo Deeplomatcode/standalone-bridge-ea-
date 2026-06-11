@@ -34,7 +34,8 @@ class TradingConfig:
     lot_size:            float = 0.01
     sl_buffer:           float = 0.0002
     rr_ratio:            float = 2.0
-    adx_trend_threshold: float = 25.0
+    adx_trend_threshold:   float = 25.0
+    session_filter_enabled: bool = True   # Phase 18: restrict to London/NY killzones
 
     @classmethod
     def from_env(cls) -> "TradingConfig":
@@ -59,4 +60,5 @@ class TradingConfig:
             sl_buffer=float(os.environ.get("SL_BUFFER", default.sl_buffer)),
             rr_ratio=float(os.environ.get("RR_RATIO", default.rr_ratio)),
             adx_trend_threshold=float(os.environ.get("ADX_TREND_THRESHOLD", default.adx_trend_threshold)),
+            session_filter_enabled=os.environ.get("SESSION_FILTER_ENABLED", "true").lower() != "false",
         )
