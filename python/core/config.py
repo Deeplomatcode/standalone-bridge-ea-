@@ -36,6 +36,10 @@ class TradingConfig:
     rr_ratio:            float = 2.0
     adx_trend_threshold:   float = 25.0
     session_filter_enabled: bool = True   # Phase 18: restrict to London/NY killzones
+    # Phase 19: risk-based lot sizing
+    risk_pct_per_trade: float = 1.0       # % of equity risked per trade (e.g. 1.0 = 1 %)
+    account_equity:     float = 10_000.0  # account balance in USD
+    contract_size:      float = 100_000.0 # units per lot (FX=100000, XAUUSD=100)
 
     @classmethod
     def from_env(cls) -> "TradingConfig":
@@ -61,4 +65,7 @@ class TradingConfig:
             rr_ratio=float(os.environ.get("RR_RATIO", default.rr_ratio)),
             adx_trend_threshold=float(os.environ.get("ADX_TREND_THRESHOLD", default.adx_trend_threshold)),
             session_filter_enabled=os.environ.get("SESSION_FILTER_ENABLED", "true").lower() != "false",
+            risk_pct_per_trade=float(os.environ.get("RISK_PCT_PER_TRADE", default.risk_pct_per_trade)),
+            account_equity=float(os.environ.get("ACCOUNT_EQUITY", default.account_equity)),
+            contract_size=float(os.environ.get("CONTRACT_SIZE", default.contract_size)),
         )

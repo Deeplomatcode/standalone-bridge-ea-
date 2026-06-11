@@ -22,6 +22,7 @@ from signals.order_blocks import OrderBlock, detect_order_blocks, mark_mitigated
 from signals.regime import classify_regime
 from signals.session import filter_by_session
 from signals.strategy import generate_signals
+from risk.lot_sizer import size_signals
 
 logger = logging.getLogger(__name__)
 
@@ -168,6 +169,9 @@ class Backtester:
                 # Session filter (Phase 18)
                 if self.config.session_filter_enabled:
                     signals = filter_by_session(signals)
+
+                # Risk-based lot sizing (Phase 19)
+                signals = size_signals(signals, self.config)
 
                 for signal in signals:
                     ob_key = str(signal.ob.timestamp)

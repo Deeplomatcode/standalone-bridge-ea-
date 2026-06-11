@@ -40,8 +40,10 @@ def make_signal(symbol="EURUSDm", comment="OB_BUY_test"):
     sig.symbol = symbol
     sig.side = "BUY"
     sig.size = 0.01
+    sig.entry_price = 1.10
     sig.stop_loss = 1.09
     sig.take_profit = 1.13
+    sig.risk_pips = abs(1.10 - 1.09)   # Phase 19: required by size_signals
     sig.comment = comment
     # Phase 18: must be a real pd.Timestamp so the session filter can call .time()
     # 08:30 UTC falls inside the London Open killzone (07:00–10:00)

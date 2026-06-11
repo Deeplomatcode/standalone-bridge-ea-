@@ -20,6 +20,7 @@ from signals.regime import classify_regime
 from signals.order_blocks import detect_order_blocks, mark_mitigated
 from signals.strategy import generate_signals, execute_signals, TradeSignal
 from signals.session import filter_by_session
+from risk.lot_sizer import size_signals
 from risk.manager import RiskManager, Position
 from core.config import TradingConfig
 from core.position_book import PositionBook
@@ -132,6 +133,9 @@ class Orchestrator:
                 logger.info(f"[{symbol}] signals_after_session_filter={len(signals)}")
             else:
                 logger.info(f"[{symbol}] signals_generated={len(signals)}")
+
+            # 4b. Risk-based lot sizing (Phase 19)
+            signals = size_signals(signals, self.config)
 
             # 5. Risk gate + dispatch
             approved_count = 0
