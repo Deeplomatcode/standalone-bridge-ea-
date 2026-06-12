@@ -534,8 +534,11 @@ void ExecuteOpen(string id, string asset, string side, double size,
    RefreshRates();
 
    // Step 3 & 4: Determine order type and price
+   // Use MarketInfo(asset, ...) — NOT the global Ask/Bid which are chart-symbol only.
+   // This allows the EA to trade any symbol regardless of which chart it is attached to.
    int    op    = (side == "BUY") ? OP_BUY  : OP_SELL;
-   double price = (side == "BUY") ? Ask     : Bid;
+   double price = (side == "BUY") ? MarketInfo(asset, MODE_ASK)
+                                  : MarketInfo(asset, MODE_BID);
 
    // Step 5: Determine magic number
    int finalMagic = (magic > 0) ? magic : MagicNumberBase;
